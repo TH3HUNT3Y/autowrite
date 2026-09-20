@@ -304,10 +304,13 @@ mod native {
     const WS_OVERLAPPEDWINDOW: Dword = 0x00cf0000;
     const WS_VISIBLE: Dword = 0x10000000;
     const WS_CHILD: Dword = 0x40000000;
-    const WS_BORDER: Dword = 0x00800000;
+    const WS_VSCROLL: Dword = 0x00200000;
+    const WS_TABSTOP: Dword = 0x00010000;
+    const WS_EX_CLIENTEDGE: Dword = 0x00000200;
     const ES_MULTILINE: Dword = 0x0004;
     const ES_AUTOVSCROLL: Dword = 0x0040;
     const ES_WANTRETURN: Dword = 0x1000;
+    const ES_NOHIDESEL: Dword = 0x0100;
     const ES_NUMBER: Dword = 0x2000;
     const BS_PUSHBUTTON: Dword = 0;
     const SW_SHOW: i32 = 5;
@@ -400,6 +403,7 @@ mod native {
         fn SetWindowTextW(hwnd: Hwnd, text: *const u16) -> Bool;
         fn SendMessageW(hwnd: Hwnd, message: Uint, wparam: Wparam, lparam: Lparam) -> Lresult;
         fn EnableWindow(hwnd: Hwnd, enable: Bool) -> Bool;
+        fn SetFocus(hwnd: Hwnd) -> Hwnd;
         fn SendInput(count: Uint, inputs: *const Input, size: i32) -> Uint;
         fn MessageBoxW(hwnd: Hwnd, text: *const u16, caption: *const u16, flags: Uint) -> i32;
         fn LoadCursorW(instance: Hinstance, cursor_name: *const u16) -> Handle;
@@ -509,10 +513,17 @@ mod native {
                 let text_label = wide("Text to type");
                 let duration_label = wide("Duration (minutes, 10-10080)");
                 let text = CreateWindowExW(
-                    WS_BORDER,
+                    WS_EX_CLIENTEDGE,
                     edit_class.as_ptr(),
                     wide(DEFAULT_TEXT).as_ptr(),
-                    WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN,
+                    WS_CHILD
+                        | WS_VISIBLE
+                        | WS_TABSTOP
+                        | WS_VSCROLL
+                        | ES_MULTILINE
+                        | ES_AUTOVSCROLL
+                        | ES_WANTRETURN
+                        | ES_NOHIDESEL,
                     18,
                     44,
                     644,
@@ -522,6 +533,10 @@ mod native {
                     instance,
                     null_mut(),
                 );
+                if text.is_null() {
+                    show_startup_error("text editor creation", GetLastError());
+                    return -1;
+                }
                 SendMessageW(text, EM_SETLIMITTEXT, 1_000_000, 0);
                 CreateWindowExW(
                     0,
@@ -552,10 +567,10 @@ mod native {
                     null_mut(),
                 );
                 let duration = CreateWindowExW(
-                    WS_BORDER,
+                    WS_EX_CLIENTEDGE,
                     edit_class.as_ptr(),
                     wide("30").as_ptr(),
-                    WS_CHILD | WS_VISIBLE | ES_NUMBER,
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_NUMBER,
                     210,
                     337,
                     100,
@@ -565,6 +580,10 @@ mod native {
                     instance,
                     null_mut(),
                 );
+                if duration.is_null() {
+                    show_startup_error("duration control creation", GetLastError());
+                    return -1;
+                }
                 let status = CreateWindowExW(
                     0,
                     static_class.as_ptr(),
@@ -584,6 +603,7 @@ mod native {
                 let stop = button(hwnd, instance, "Stop", 203, 298, 100);
                 EnableWindow(pause, 0);
                 EnableWindow(stop, 0);
+                SetFocus(text);
                 SetWindowLongPtrW(
                     hwnd,
                     GWLP_USERDATA,
