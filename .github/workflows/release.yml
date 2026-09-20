@@ -1,4 +1,4 @@
-name: Release Windows executable
+name: Release desktop binaries
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build-windows:
     runs-on: windows-latest
     steps:
       - name: Check out source
@@ -20,11 +20,54 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Build release executable
+      - name: Build Windows executable
         run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Stage Windows artifact
+        shell: pwsh
+        run: Copy-Item target/x86_64-pc-windows-msvc/release/dripwriter.exe dripwriter-windows-x86_64.exe
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dripwriter-windows
+          path: dripwriter-windows-x86_64.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Linux executable
+        run: cargo build --release
+
+      - name: Stage Linux artifact
+        run: cp target/release/dripwriter dripwriter-linux-x86_64
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dripwriter-linux
+          path: dripwriter-linux-x86_64
+
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dripwriter-*
+          merge-multiple: true
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/x86_64-pc-windows-msvc/release/dripwriter.exe
+          files: |
+            dripwriter-windows-x86_64.exe
+            dripwriter-linux-x86_64
           generate_release_notes: true
