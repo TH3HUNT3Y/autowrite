@@ -269,6 +269,8 @@ mod native {
     const KEYEVENTF_KEYUP: Dword = 0x0002;
     const KEYEVENTF_UNICODE: Dword = 0x0004;
     const IDC_ARROW: *const u16 = 32512usize as *const u16;
+    const MB_OK: Uint = 0x0000;
+    const MB_ICONERROR: Uint = 0x0010;
 
     #[repr(C)]
     struct WndclassW {
@@ -342,10 +344,12 @@ mod native {
         fn SendMessageW(hwnd: Hwnd, message: Uint, wparam: Wparam, lparam: Lparam) -> Lresult;
         fn EnableWindow(hwnd: Hwnd, enable: Bool) -> Bool;
         fn SendInput(count: Uint, inputs: *const Input, size: i32) -> Uint;
+        fn MessageBoxW(hwnd: Hwnd, text: *const u16, caption: *const u16, flags: Uint) -> i32;
     }
     #[link(name = "kernel32")]
     extern "system" {
         fn GetModuleHandleW(name: *const u16) -> Hinstance;
+        fn GetLastError() -> Dword;
     }
 
     fn wide(value: &str) -> Vec<u16> {
@@ -368,6 +372,21 @@ mod native {
         let value = wide(text);
         unsafe {
             SetWindowTextW(hwnd, value.as_ptr());
+        }
+    }
+
+    fn show_startup_error(step: &str, error_code: Dword) {
+        let message = wide(&format!(
+            "Dripwriter could not start at {step}. Win32 error: {error_code}"
+        ));
+        let caption = wide("Dripwriter startup error");
+        unsafe {
+            MessageBoxW(
+                null_mut(),
+                message.as_ptr(),
+                caption.as_ptr(),
+                MB_OK | MB_ICONERROR,
+            );
         }
     }
     fn button(
@@ -727,7 +746,10 @@ mod native {
                 menu_name: null_mut(),
                 class_name: class_name.as_ptr(),
             };
-            RegisterClassW(&class);
+            if RegisterClassW(&class) == 0 {
+                show_startup_error("window class registration", GetLastError());
+                return;
+            }
             let title = wide("Dripwriter");
             let hwnd = CreateWindowExW(
                 0,
@@ -743,6 +765,10 @@ mod native {
                 instance,
                 null_mut(),
             );
+            if hwnd.is_null() {
+                show_startup_error("window creation", GetLastError());
+                return;
+            }
             ShowWindow(hwnd, SW_SHOW);
             UpdateWindow(hwnd);
             let mut message = Msg {
