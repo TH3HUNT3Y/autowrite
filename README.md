@@ -1,10 +1,12 @@
 # Dripwriter
 
-Dripwriter is a free, local Windows desktop app that types text into the currently focused input using OS-level keyboard events. It does not use Google Docs, browser automation, a cloud service, or a runtime dependency.
+Dripwriter is a free, local Windows desktop app that types text into the currently focused input using native Windows `SendInput` events. It does not use Google Docs, browser automation, a cloud service, OpenGL, or third-party runtime dependencies.
+
+The executable is a native Windows PE file built from Rust's standard library and direct Win32 FFI. Windows system DLLs such as `user32.dll` are part of Windows itself; no DLL, Python runtime, Node.js runtime, VC++ redistributable, or graphics runtime is bundled or required.
 
 ## Architecture
 
-The `eframe` UI owns the text editor and schedule controls. Starting a run creates a standard-library `mpsc` channel and a worker thread. That thread creates its own single-thread Tokio runtime, generates a humanized action plan, owns the `enigo::Enigo` instance, and executes the plan. Pause, resume, and stop messages are drained between actions and during 100 ms sleep slices, so the UI stays responsive and cancellation does not wait for a long punctuation or thinking pause to finish.
+The native Win32 window owns the text editor and schedule controls. Starting a run creates a standard-library `mpsc` channel and a worker thread. That thread generates a humanized action plan and calls Win32 `SendInput` directly. Pause, resume, and stop messages are drained between actions and during 100 ms sleep slices, so the UI stays responsive and cancellation does not wait for a long punctuation or thinking pause to finish.
 
 Progress and control state are held in `Arc<Atomic*>` values. This avoids sharing the input simulator across threads and keeps the GUI's polling cheap.
 
@@ -16,7 +18,7 @@ Install the stable Rust toolchain, then run:
 cargo build --release
 ```
 
-The executable is `target\release\dripwriter.exe`. The release profile enables link-time optimization, strips symbols, and aborts on panic. A normal Windows build uses the Microsoft toolchain and does not require Python, Node.js, or a separate application runtime. Launch it, paste text, set the duration, click **Start Dripping**, and focus the destination text field.
+The executable is `target\release\dripwriter.exe`. The release profile enables link-time optimization, strips symbols, and aborts on panic. A normal Windows build uses the Microsoft toolchain and does not require Python, Node.js, OpenGL, or a separate application runtime. Launch it, paste text, set the duration, click **Start Dripping**, and focus the destination text field.
 
 The app writes its last text and duration to `dripwriter.json` beside the executable. Do not place credentials or sensitive text in that file.
 
