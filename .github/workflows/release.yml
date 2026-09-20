@@ -27,13 +27,13 @@ jobs:
 
       - name: Stage Windows artifact
         shell: pwsh
-        run: Copy-Item target/x86_64-pc-windows-msvc/release/dripwriter.exe dripwriter-windows-x86_64.exe
+        run: Copy-Item target/x86_64-pc-windows-msvc/release/auto_write.exe auto_write-windows-x86_64.exe
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dripwriter-windows
-          path: dripwriter-windows-x86_64.exe
+          name: auto_write-windows
+          path: auto_write-windows-x86_64.exe
 
   release:
     needs: build-windows
@@ -42,11 +42,11 @@ jobs:
       - name: Download built artifacts
         uses: actions/download-artifact@v4
         with:
-          name: dripwriter-windows
+          name: auto_write-windows
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dripwriter-windows-x86_64.exe
+            auto_write-windows-x86_64.exe
           generate_release_notes: true
