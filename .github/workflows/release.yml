@@ -1,4 +1,4 @@
-name: Release desktop binaries
+name: Release Windows executable
 
 on:
   push:
@@ -33,41 +33,18 @@ jobs:
           name: dripwriter-windows
           path: dripwriter-windows-x86_64.exe
 
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build Linux executable
-        run: cargo build --release
-
-      - name: Stage Linux artifact
-        run: cp target/release/dripwriter dripwriter-linux-x86_64
-
-      - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dripwriter-linux
-          path: dripwriter-linux-x86_64
-
   release:
-    needs: [build-windows, build-linux]
+    needs: build-windows
     runs-on: ubuntu-latest
     steps:
       - name: Download built artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: dripwriter-*
-          merge-multiple: true
+          name: dripwriter-windows
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dripwriter-windows-x86_64.exe
-            dripwriter-linux-x86_64
           generate_release_notes: true

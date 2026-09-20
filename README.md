@@ -29,12 +29,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow in `.github/workflows/release.yml` builds two release assets:
-
-- `dripwriter-windows-x86_64.exe` for 64-bit Windows.
-- `dripwriter-linux-x86_64` for Linux desktop environments, including the Linux development environment on supported Chromebooks.
-
-On a Chromebook, enable **Linux development environment** in ChromeOS Settings, download the Linux asset, mark it executable in the Files app, and open it from the Linux files area. Crosh is not required. ChromeOS may still block OS-level input from a Linux app into Chrome browser tabs; the Linux build is intended for Linux GUI applications and text fields inside the Linux environment. A browser extension would be required to type into Chrome tabs, and would not provide universal typing into every ChromeOS app.
+The workflow in `.github/workflows/release.yml` builds the `dripwriter-windows-x86_64.exe` asset for 64-bit Windows.
 
 ## Behavior notes
 
