@@ -402,6 +402,7 @@ mod native {
         fn EnableWindow(hwnd: Hwnd, enable: Bool) -> Bool;
         fn SendInput(count: Uint, inputs: *const Input, size: i32) -> Uint;
         fn MessageBoxW(hwnd: Hwnd, text: *const u16, caption: *const u16, flags: Uint) -> i32;
+        fn LoadCursorW(instance: Hinstance, cursor_name: *const u16) -> Handle;
     }
     #[link(name = "kernel32")]
     extern "system" {
@@ -830,7 +831,7 @@ mod native {
                 wnd_extra: 0,
                 instance,
                 icon: null_mut(),
-                cursor: IDC_ARROW as Handle,
+                cursor: LoadCursorW(null_mut(), IDC_ARROW),
                 background: 6usize as Handle,
                 menu_name: null_mut(),
                 class_name: class_name.as_ptr(),
