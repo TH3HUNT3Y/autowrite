@@ -20,6 +20,14 @@ cargo build --release
 
 The executable is `target\release\dripwriter.exe`. The release profile enables link-time optimization, strips symbols, and aborts on panic. The release workflow statically links the MSVC runtime, so the published PE does not require the Visual C++ redistributable. It does not require Python, Node.js, OpenGL, or a separate application runtime. Launch it, paste text, set the duration, click **Start Dripping**, and focus the destination text field.
 
+To test the UI state machine without sending any keystrokes, run:
+
+```powershell
+.\dripwriter.exe --self-test
+```
+
+This opens a result dialog after checking invalid input, start, pause, resume, progress completion, stop, and duration clamping. The same checks also run with `cargo test` during development.
+
 The app writes its last text and duration to `dripwriter.json` beside the executable. Do not place credentials or sensitive text in that file.
 
 ## GitHub release

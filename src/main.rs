@@ -220,6 +220,63 @@ fn drain_controls(state: &WorkerState, receiver: &Receiver<WorkerMessage>) {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UiStatus {
+    Ready,
+    Running,
+    Paused,
+    Complete,
+    Stopped,
+}
+
+#[derive(Debug)]
+struct UiModel {
+    status: UiStatus,
+    progress: usize,
+    duration_minutes: u64,
+}
+
+impl UiModel {
+    fn new() -> Self {
+        Self {
+            status: UiStatus::Ready,
+            progress: 0,
+            duration_minutes: 30,
+        }
+    }
+
+    fn start(&mut self, text: &str, duration_minutes: u64) -> bool {
+        if text.trim().is_empty() {
+            return false;
+        }
+        self.status = UiStatus::Running;
+        self.progress = 0;
+        self.duration_minutes = duration_minutes.clamp(MINUTES_MIN, MINUTES_MAX);
+        true
+    }
+
+    fn toggle_pause(&mut self) {
+        self.status = match self.status {
+            UiStatus::Running => UiStatus::Paused,
+            UiStatus::Paused => UiStatus::Running,
+            status => status,
+        };
+    }
+
+    fn stop(&mut self) {
+        if matches!(self.status, UiStatus::Running | UiStatus::Paused) {
+            self.status = UiStatus::Stopped;
+        }
+    }
+
+    fn set_progress(&mut self, progress: usize) {
+        self.progress = progress.min(100);
+        if self.progress == 100 && self.status != UiStatus::Stopped {
+            self.status = UiStatus::Complete;
+        }
+    }
+}
+
 #[cfg(windows)]
 mod native {
     use super::*;
@@ -387,6 +444,15 @@ mod native {
                 caption.as_ptr(),
                 MB_OK | MB_ICONERROR,
             );
+        }
+    }
+
+    pub fn show_test_result(message: &str, passed: bool) {
+        let text = wide(message);
+        let caption = wide("Dripwriter UI self-test");
+        let flags = if passed { MB_OK } else { MB_OK | MB_ICONERROR };
+        unsafe {
+            MessageBoxW(null_mut(), text.as_ptr(), caption.as_ptr(), flags);
         }
     }
     fn button(
@@ -730,6 +796,29 @@ mod native {
         }
     }
 
+    pub fn self_test() -> bool {
+        let mut model = UiModel::new();
+        let valid_start = model.start("hello", 1);
+        let duration_clamped = model.duration_minutes == MINUTES_MIN;
+        model.toggle_pause();
+        let paused = model.status == UiStatus::Paused;
+        model.toggle_pause();
+        let resumed = model.status == UiStatus::Running;
+        model.set_progress(100);
+        let completed = model.status == UiStatus::Complete;
+        model.start("hello", 30);
+        model.stop();
+        let stopped = model.status == UiStatus::Stopped;
+        let rejected_empty = !model.start("  ", 30);
+        valid_start
+            && duration_clamped
+            && paused
+            && resumed
+            && completed
+            && stopped
+            && rejected_empty
+    }
+
     pub fn run() {
         unsafe {
             let instance = GetModuleHandleW(null_mut());
@@ -789,7 +878,17 @@ mod native {
 
 #[cfg(windows)]
 fn main() {
-    native::run();
+    if std::env::args().any(|argument| argument == "--self-test") {
+        let passed = native::self_test();
+        let message = if passed {
+            "UI self-test passed."
+        } else {
+            "UI self-test failed."
+        };
+        native::show_test_result(message, passed);
+    } else {
+        native::run();
+    }
 }
 
 #[cfg(not(windows))]
@@ -800,6 +899,21 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ui_model_covers_control_lifecycle() {
+        let mut model = UiModel::new();
+        assert!(!model.start(" ", 30));
+        assert!(model.start("hello", 1));
+        assert_eq!(model.duration_minutes, MINUTES_MIN);
+        model.toggle_pause();
+        assert_eq!(model.status, UiStatus::Paused);
+        model.toggle_pause();
+        assert_eq!(model.status, UiStatus::Running);
+        model.set_progress(100);
+        assert_eq!(model.status, UiStatus::Complete);
+        assert_eq!(model.progress, 100);
+    }
     #[test]
     fn adjacent_key_preserves_case() {
         assert_eq!(adjacent_key('a'), Some('s'));
