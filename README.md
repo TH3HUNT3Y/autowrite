@@ -18,7 +18,7 @@ Install the stable Rust toolchain, then run:
 cargo build --release
 ```
 
-The executable is `target\release\dripwriter.exe`. The release profile enables link-time optimization, strips symbols, and aborts on panic. The release workflow statically links the MSVC runtime, so the published PE does not require the Visual C++ redistributable. It does not require Python, Node.js, OpenGL, or a separate application runtime. Launch it, paste text, set the duration, click **Start Dripping**, and focus the destination text field.
+The executable is `target\release\dripwriter.exe`. The release profile enables link-time optimization, strips symbols, and aborts on panic. The release workflow statically links the MSVC runtime, so the published PE does not require the Visual C++ redistributable. It does not require Python, Node.js, OpenGL, or a separate application runtime. Launch it, paste text, set the duration, click **Start Dripping**, then switch to the destination text field during the three-second handoff. The worker keeps typing after Dripwriter loses focus.
 
 To test the UI state machine without sending any keystrokes, run:
 

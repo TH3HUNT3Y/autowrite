@@ -33,6 +33,7 @@ enum WorkerMessage {
 struct WorkerState {
     paused: Arc<AtomicBool>,
     canceled: Arc<AtomicBool>,
+    failed: Arc<AtomicBool>,
     completed: Arc<AtomicUsize>,
     total: Arc<AtomicUsize>,
 }
@@ -42,6 +43,7 @@ impl WorkerState {
         Self {
             paused: Arc::new(AtomicBool::new(false)),
             canceled: Arc::new(AtomicBool::new(false)),
+            failed: Arc::new(AtomicBool::new(false)),
             completed: Arc::new(AtomicUsize::new(0)),
             total: Arc::new(AtomicUsize::new(0)),
         }
@@ -304,9 +306,11 @@ mod native {
     const WS_OVERLAPPEDWINDOW: Dword = 0x00cf0000;
     const WS_VISIBLE: Dword = 0x10000000;
     const WS_CHILD: Dword = 0x40000000;
+    const WS_CLIPCHILDREN: Dword = 0x02000000;
     const WS_VSCROLL: Dword = 0x00200000;
     const WS_TABSTOP: Dword = 0x00010000;
     const WS_EX_CLIENTEDGE: Dword = 0x00000200;
+    const WS_EX_CONTROLPARENT: Dword = 0x00010000;
     const ES_MULTILINE: Dword = 0x0004;
     const ES_AUTOVSCROLL: Dword = 0x0040;
     const ES_WANTRETURN: Dword = 0x1000;
@@ -316,6 +320,8 @@ mod native {
     const SW_SHOW: i32 = 5;
     const WM_CREATE: Uint = 1;
     const WM_DESTROY: Uint = 2;
+    const WM_SIZE: Uint = 5;
+    const WM_SETFOCUS: Uint = 7;
     const WM_COMMAND: Uint = 0x0111;
     const WM_CLOSE: Uint = 0x0010;
     const WM_APP: Uint = 0x8000;
@@ -324,6 +330,8 @@ mod native {
     const EM_SETLIMITTEXT: Uint = 0x00c5;
     const WM_GETTEXTLENGTH: Uint = 0x000e;
     const WM_GETTEXT: Uint = 0x000d;
+    const WM_SETFONT: Uint = 0x0030;
+    const DEFAULT_GUI_FONT: usize = 17;
     const VK_BACK: u16 = 0x08;
     const INPUT_KEYBOARD: Dword = 1;
     const KEYEVENTF_KEYUP: Dword = 0x0002;
@@ -404,6 +412,8 @@ mod native {
         fn SendMessageW(hwnd: Hwnd, message: Uint, wparam: Wparam, lparam: Lparam) -> Lresult;
         fn EnableWindow(hwnd: Hwnd, enable: Bool) -> Bool;
         fn SetFocus(hwnd: Hwnd) -> Hwnd;
+        fn MoveWindow(hwnd: Hwnd, x: i32, y: i32, width: i32, height: i32, repaint: Bool) -> Bool;
+        fn GetStockObject(object: i32) -> Handle;
         fn SendInput(count: Uint, inputs: *const Input, size: i32) -> Uint;
         fn MessageBoxW(hwnd: Hwnd, text: *const u16, caption: *const u16, flags: Uint) -> i32;
         fn LoadCursorW(instance: Hinstance, cursor_name: *const u16) -> Handle;
@@ -434,6 +444,12 @@ mod native {
         let value = wide(text);
         unsafe {
             SetWindowTextW(hwnd, value.as_ptr());
+        }
+    }
+
+    fn set_default_font(hwnd: Hwnd, font: Handle) {
+        unsafe {
+            SendMessageW(hwnd, WM_SETFONT, font as Wparam, 1);
         }
     }
 
@@ -475,7 +491,7 @@ mod native {
                 0,
                 class.as_ptr(),
                 title.as_ptr(),
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                 x,
                 390,
                 width,
@@ -601,6 +617,13 @@ mod native {
                 let start = button(hwnd, instance, "Start Dripping", 201, 18, 150);
                 let pause = button(hwnd, instance, "Pause", 202, 180, 100);
                 let stop = button(hwnd, instance, "Stop", 203, 298, 100);
+                let font = GetStockObject(DEFAULT_GUI_FONT as i32);
+                set_default_font(text, font);
+                set_default_font(duration, font);
+                set_default_font(status, font);
+                set_default_font(start, font);
+                set_default_font(pause, font);
+                set_default_font(stop, font);
                 EnableWindow(pause, 0);
                 EnableWindow(stop, 0);
                 SetFocus(text);
@@ -619,6 +642,31 @@ mod native {
                 );
                 0
             }
+            WM_SIZE if !state_ptr.is_null() => {
+                let state = &mut *state_ptr;
+                let dimensions = lparam as u32;
+                let width = (dimensions & 0xffff) as i32;
+                let height = (dimensions >> 16) as i32;
+                let editor_height = (height - 150).max(120);
+                MoveWindow(state.text, 18, 44, (width - 36).max(240), editor_height, 1);
+                MoveWindow(state.duration, 210, height - 113, 100, 25, 1);
+                MoveWindow(
+                    state.status,
+                    330,
+                    height - 110,
+                    (width - 348).max(180),
+                    22,
+                    1,
+                );
+                MoveWindow(state.start, 18, height - 70, 150, 30, 1);
+                MoveWindow(state.pause, 180, height - 70, 100, 30, 1);
+                MoveWindow(state.stop, 298, height - 70, 100, 30, 1);
+                0
+            }
+            WM_SETFOCUS if !state_ptr.is_null() => {
+                SetFocus((*state_ptr).text);
+                0
+            }
             WM_COMMAND if !state_ptr.is_null() => {
                 let state = &mut *state_ptr;
                 match (wparam & 0xffff) as usize {
@@ -631,32 +679,51 @@ mod native {
             }
             WM_APP_PROGRESS if !state_ptr.is_null() => {
                 let state = &mut *state_ptr;
+                let mut finished = false;
                 if let Some((_, worker)) = &state.worker {
                     let percent = worker.progress_percent();
-                    let status = if worker.paused.load(Ordering::Relaxed) {
+                    let status = if worker.failed.load(Ordering::Relaxed) {
+                        "Keyboard input failed. Check Windows input permissions.".to_owned()
+                    } else if worker.paused.load(Ordering::Relaxed) {
                         format!("Paused ({percent}%)")
                     } else {
                         format!("Running ({percent}%)")
                     };
                     set_text(state.status, &status);
-                    if percent >= 100 || worker.canceled.load(Ordering::Relaxed) {
+                    if percent >= 100
+                        || worker.canceled.load(Ordering::Relaxed)
+                        || worker.failed.load(Ordering::Relaxed)
+                    {
                         EnableWindow(state.start, 1);
                         EnableWindow(state.pause, 0);
                         EnableWindow(state.stop, 0);
                         set_text(
                             state.status,
-                            if worker.canceled.load(Ordering::Relaxed) {
+                            if worker.failed.load(Ordering::Relaxed) {
+                                "Keyboard input failed"
+                            } else if worker.canceled.load(Ordering::Relaxed) {
                                 "Stopped"
                             } else {
                                 "Complete"
                             },
                         );
+                        finished = true;
                     }
+                }
+                if finished {
+                    state.worker = None;
                 }
                 0
             }
             WM_CLOSE => DefWindowProcW(hwnd, WM_CLOSE, wparam, lparam),
             WM_DESTROY => {
+                if !state_ptr.is_null() {
+                    let state = Box::from_raw(state_ptr);
+                    if let Some((_, worker)) = state.worker {
+                        worker.canceled.store(true, Ordering::Relaxed);
+                    }
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                }
                 PostQuitMessage(0);
                 0
             }
@@ -685,6 +752,9 @@ mod native {
         let hwnd_value = hwnd as usize;
         let text_for_thread = text.clone();
         thread::spawn(move || {
+            if !sleep_with_controls(3_000, &state_for_thread, &receiver) {
+                return;
+            }
             let mut actions = humanize(
                 &text_for_thread,
                 estimated_wpm(&text_for_thread, minutes).max(1.0),
@@ -699,14 +769,18 @@ mod native {
                 if state_for_thread.canceled.load(Ordering::Relaxed) {
                     break;
                 }
-                match action {
+                let input_succeeded = match action {
                     TypingAction::Pause(milliseconds) => {
-                        if !sleep_with_controls(milliseconds, &state_for_thread, &receiver) {
-                            break;
-                        }
+                        sleep_with_controls(milliseconds, &state_for_thread, &receiver)
                     }
                     TypingAction::KeyPress(character) => send_unicode(character),
                     TypingAction::Backspace => send_vk(VK_BACK),
+                };
+                if !input_succeeded {
+                    if !state_for_thread.canceled.load(Ordering::Relaxed) {
+                        state_for_thread.failed.store(true, Ordering::Relaxed);
+                    }
+                    break;
                 }
                 state_for_thread.completed.fetch_add(1, Ordering::Relaxed);
                 unsafe {
@@ -723,7 +797,10 @@ mod native {
             EnableWindow(state.pause, 1);
             EnableWindow(state.stop, 1);
         }
-        set_text(state.status, "Running - focus destination field");
+        set_text(
+            state.status,
+            "Switch to destination field - typing starts in 3 seconds",
+        );
     }
 
     fn toggle_pause(state: &mut WindowState) {
@@ -751,7 +828,7 @@ mod native {
             set_text(state.status, "Stopping");
         }
     }
-    fn send_vk(virtual_key: u16) {
+    fn send_vk(virtual_key: u16) -> bool {
         let inputs = [
             Input {
                 input_type: INPUT_KEYBOARD,
@@ -779,10 +856,10 @@ mod native {
                 inputs.len() as Uint,
                 inputs.as_ptr(),
                 size_of::<Input>() as i32,
-            );
+            ) == inputs.len() as Uint
         }
     }
-    fn send_unicode(character: char) {
+    fn send_unicode(character: char) -> bool {
         let mut units = [0u16; 2];
         for unit in character.encode_utf16(&mut units) {
             let inputs = [
@@ -807,14 +884,18 @@ mod native {
                     },
                 },
             ];
-            unsafe {
+            let sent = unsafe {
                 SendInput(
                     inputs.len() as Uint,
                     inputs.as_ptr(),
                     size_of::<Input>() as i32,
-                );
+                ) == inputs.len() as Uint
+            };
+            if !sent {
+                return false;
             }
         }
+        true
     }
 
     pub fn self_test() -> bool {
@@ -862,10 +943,10 @@ mod native {
             }
             let title = wide("Dripwriter");
             let hwnd = CreateWindowExW(
-                0,
+                WS_EX_CONTROLPARENT,
                 class_name.as_ptr(),
                 title.as_ptr(),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN,
                 100,
                 100,
                 700,
